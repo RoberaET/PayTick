@@ -847,7 +847,33 @@ function App() {
   const [clockIn,    setClockIn]    = useState<string>('08:30');
   const [clockOut,   setClockOut]   = useState<string>('17:30');
 
+  const [usdRate, setUsdRate] = useState<number>(() => {
+    const cached = localStorage.getItem('usd_etb_rate');
+    return cached ? parseFloat(cached) : 120;
+  });
 
+  useEffect(() => {
+    const fetchRate = async () => {
+      try {
+        const lastFetch = localStorage.getItem('usd_etb_last_fetch');
+        const now = Date.now();
+        // Fetch once every 12 hours to save API quota
+        if (!lastFetch || now - parseInt(lastFetch) > 12 * 60 * 60 * 1000) {
+          const res = await fetch('https://v6.exchangerate-api.com/v6/5e3a6345c77e6a156bd9613d/latest/USD');
+          const data = await res.json();
+          if (data.result === 'success' && data.conversion_rates && data.conversion_rates.ETB) {
+            const rate = data.conversion_rates.ETB;
+            setUsdRate(rate);
+            localStorage.setItem('usd_etb_rate', rate.toString());
+            localStorage.setItem('usd_etb_last_fetch', now.toString());
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch USD rate", err);
+      }
+    };
+    fetchRate();
+  }, []);
 
   const [nextPayDateStr, setNextPayDateStr] = useState<string>(() => {
     const d = new Date();
@@ -1248,7 +1274,10 @@ function App() {
 
           {/* Ethiopian Time Card */}
           <div className="bento-card">
-             <div className="card-label">Ethiopian Date & Time</div>
+             <div className="card-label" style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+               <span>Ethiopian Date & Time</span>
+               <span style={{ color: 'var(--accent)', fontSize: '0.75rem', fontWeight: 600 }}>1 USD = {usdRate.toFixed(2)} ETB</span>
+             </div>
              {ethioTime && ethioDate ? (
                <div style={{ marginTop: '0.5rem' }}>
                  <div className="card-value" style={{ fontSize: '1.4rem' }}>
@@ -1263,6 +1292,27 @@ function App() {
              ) : (
                <div className="card-subtext" style={{ marginTop: '0.5rem' }}>Loading...</div>
               )}
+
+             {/* USD Rate Graphic */}
+             <div style={{ marginTop: '1.5rem', background: 'rgba(0,0,0,0.2)', padding: '0.75rem', borderRadius: '12px' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Hourly Rate USD Equivalent
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: 'var(--text-main)' }}>
+                    ${(hourlyRate / usdRate).toFixed(2)} <span style={{fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 'normal'}}>USD/hr</span>
+                  </div>
+                  <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+                    (≈ ETB {hourlyRate.toFixed(2)})
+                  </div>
+                </div>
+                
+                {/* Visual Ratio Bar */}
+                <div style={{ display: 'flex', height: '6px', borderRadius: '4px', overflow: 'hidden', background: 'rgba(255,255,255,0.05)' }}>
+                  <div style={{ width: '15%', background: '#3b82f6', height: '100%' }} title="USD Power"></div>
+                  <div style={{ width: '85%', background: 'var(--accent)', height: '100%' }} title="ETB Value"></div>
+                </div>
+             </div>
           </div>
 
           {/* Converter Card */}
