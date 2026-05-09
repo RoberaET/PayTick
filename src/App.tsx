@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import './index.css';
 import { EthDateTime } from 'ethiopian-calendar-date-converter';
+import { generateOTPdf } from './generateOTPdf';
 
 type SalaryType = 'hourly' | 'monthly';
 
@@ -412,6 +413,148 @@ function ManualOTModal({ onClose, defaultHourlyRate, otHistory, setOtHistory, ov
   );
 }
 
+// ── Export OT PDF Modal ───────────────────────────────────────────────
+function ExportPdfModal({ onClose, otHistory, setOtHistory }: {
+  onClose: () => void;
+  otHistory: OvertimeRecord[];
+  setOtHistory: (h: OvertimeRecord[]) => void;
+}) {
+  const [employeeName, setEmployeeName] = useState(() => localStorage.getItem('calc_employee_name') || '');
+  const [workPerformed, setWorkPerformed] = useState('');
+  const [error, setError] = useState('');
+  const [markFiled, setMarkFiled] = useState(true);
+  const [exportType, setExportType] = useState<'unfiled' | 'all'>('unfiled');
+
+  const recordsToExport = useMemo(() => {
+    return exportType === 'unfiled' ? otHistory.filter(r => !r.formFilled) : otHistory;
+  }, [exportType, otHistory]);
+  
+  // Calculate estimated total hours from these records to put in the template header
+  const estimatedHours = useMemo(() => {
+    let totalHrs = 0;
+    recordsToExport.forEach(r => {
+      totalHrs += (r.endMs - r.startMs) / 3600000;
+    });
+    return totalHrs.toFixed(2);
+  }, [recordsToExport]);
+
+  const handleExport = () => {
+    if (recordsToExport.length === 0) {
+      setError('No overtime records available to export.');
+      return;
+    }
+    if (!employeeName.trim()) {
+      setError('Please enter the employee name.');
+      return;
+    }
+    if (!workPerformed.trim()) {
+      setError('Please enter the work performed.');
+      return;
+    }
+
+    localStorage.setItem('calc_employee_name', employeeName);
+
+    // Call PDF generator
+    generateOTPdf(employeeName, workPerformed, estimatedHours, recordsToExport);
+
+    // Optionally mark all as filed
+    if (markFiled) {
+      const updatedHistory = otHistory.map(r => {
+        // If it's in recordsToExport and not yet filed, mark it
+        if (recordsToExport.some(e => e.id === r.id) && !r.formFilled) {
+          return { ...r, formFilled: true };
+        }
+        return r;
+      });
+      setOtHistory(updatedHistory);
+      localStorage.setItem('calc_ot_history', JSON.stringify(updatedHistory));
+    }
+
+    onClose();
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '0.6rem 0.75rem', borderRadius: '10px',
+    border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.05)',
+    color: '#fff', fontSize: '0.9rem', outline: 'none', boxSizing: 'border-box',
+    marginBottom: '1rem'
+  };
+  const labelStyle: React.CSSProperties = {
+    fontSize: '0.78rem', opacity: 0.75, display: 'block', marginBottom: '0.35rem', fontWeight: 500,
+  };
+
+  return createPortal(
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 9999,
+      background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(8px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem',
+    }} onClick={onClose}>
+      <div style={{
+        background: 'linear-gradient(145deg, #0f172a, #1e293b)',
+        border: '1px solid rgba(139,92,246,0.35)',
+        borderRadius: '18px', padding: '1.8rem',
+        width: '100%', maxWidth: '420px',
+        boxShadow: '0 25px 60px rgba(0,0,0,0.6)',
+      }} onClick={e => e.stopPropagation()}>
+
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.4rem' }}>
+          <div>
+            <div style={{ fontSize: '1.1rem', fontWeight: 700 }}>Export OT Form</div>
+            <div style={{ fontSize: '0.78rem', opacity: 0.55, marginTop: '0.2rem' }}>Generates PDF for {recordsToExport.length} record(s)</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '1.2rem', lineHeight: 1 }}>✕</button>
+        </div>
+
+        <div>
+          <label style={labelStyle}>Records to Export</label>
+          <select style={{...inputStyle, appearance: 'none'}} value={exportType} onChange={e => setExportType(e.target.value as 'unfiled' | 'all')}>
+            <option value="unfiled">Unfiled Only ({otHistory.filter(r => !r.formFilled).length} records)</option>
+            <option value="all">All Records ({otHistory.length} records)</option>
+          </select>
+        </div>
+
+        <div>
+          <label style={labelStyle}>Name of Employee</label>
+          <input type="text" style={inputStyle} placeholder="John Doe" value={employeeName} onChange={e => setEmployeeName(e.target.value)} />
+        </div>
+
+        <div>
+          <label style={labelStyle}>Work Performed</label>
+          <input type="text" style={inputStyle} placeholder="Server maintenance and testing" value={workPerformed} onChange={e => setWorkPerformed(e.target.value)} />
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.2rem' }}>
+          <input type="checkbox" id="markFiled" checked={markFiled} onChange={e => setMarkFiled(e.target.checked)} style={{ cursor: 'pointer', width: '16px', height: '16px', accentColor: '#8b5cf6' }} />
+          <label htmlFor="markFiled" style={{ fontSize: '0.85rem', cursor: 'pointer', opacity: 0.85 }}>
+            Mark exported records as "✓ Form Filed"
+          </label>
+        </div>
+
+        {error && <div style={{ fontSize: '0.78rem', color: '#f87171', marginBottom: '0.8rem', textAlign: 'center' }}>{error}</div>}
+
+        {/* Actions */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+          <button onClick={onClose} style={{
+            padding: '0.65rem', borderRadius: '10px',
+            border: '1px solid rgba(255,255,255,0.15)', background: 'transparent',
+            color: 'rgba(255,255,255,0.6)', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 600,
+          }}>Cancel</button>
+          <button onClick={handleExport} style={{
+            padding: '0.65rem', borderRadius: '10px',
+            border: 'none', background: 'linear-gradient(135deg, #10b981, #059669)',
+            color: '#fff', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 700,
+            boxShadow: '0 4px 15px rgba(16,185,129,0.35)',
+            opacity: recordsToExport.length === 0 ? 0.5 : 1,
+            pointerEvents: recordsToExport.length === 0 ? 'none' : 'auto',
+          }}>Download Filled Form</button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 function OvertimeCard({ isTodayMissed, overtimeAccumulated, activeOvertimeSession, overtimeLive, setOvertimeAccumulated, setActiveOvertimeSession, otHistory, setOtHistory, hourlyRate }: any) {
   const [otStartTime, setOtStartTime] = useState<string>(
     `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`
@@ -423,6 +566,7 @@ function OvertimeCard({ isTodayMissed, overtimeAccumulated, activeOvertimeSessio
   const multiplierToUse = otInputMultiplier !== '' ? Number(otInputMultiplier) : 'auto';
 
   const [showManualModal, setShowManualModal] = useState(false);
+  const [showPdfModal, setShowPdfModal] = useState(false);
 
   const handleStart = () => {
     const [h, m] = otStartTime.split(':').map(Number);
@@ -482,7 +626,23 @@ function OvertimeCard({ isTodayMissed, overtimeAccumulated, activeOvertimeSessio
 
   return (
     <div className="bento-card hero-card" style={{ background: activeOvertimeSession ? 'linear-gradient(135deg, rgba(8, 145, 178, 0.1), rgba(139, 92, 246, 0.1))' : undefined, border: activeOvertimeSession ? '1px solid rgba(139, 92, 246, 0.3)' : undefined }}>
-      <div className="card-label">Overtime Tracker</div>
+      <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="card-label" style={{margin:0}}>Overtime Tracker</div>
+        <button
+          className="icon-btn"
+          style={{ padding: '0.4rem', color: 'var(--accent, #22d3ee)', background: 'rgba(34,211,238,0.1)', border: '1px solid rgba(34,211,238,0.2)' }}
+          onClick={() => setShowPdfModal(true)}
+          title="Export OT Form as PDF"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="12" y1="18" x2="12" y2="12"></line>
+            <line x1="9" y1="15" x2="12" y2="18"></line>
+            <line x1="15" y1="15" x2="12" y2="18"></line>
+          </svg>
+        </button>
+      </div>
       
       <div style={{ display: 'flex', gap: '0.8rem', marginTop: '0.5rem' }}>
         <div style={{flex: 1}}>
@@ -537,6 +697,14 @@ function OvertimeCard({ isTodayMissed, overtimeAccumulated, activeOvertimeSessio
           setOtHistory={setOtHistory}
           overtimeAccumulated={overtimeAccumulated}
           setOvertimeAccumulated={setOvertimeAccumulated}
+        />
+      )}
+
+      {showPdfModal && (
+        <ExportPdfModal
+          onClose={() => setShowPdfModal(false)}
+          otHistory={otHistory}
+          setOtHistory={setOtHistory}
         />
       )}
 
