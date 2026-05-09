@@ -1142,14 +1142,9 @@ function App() {
   const mainEarned     = Math.floor(mainTotalEarned);
   const decimalsEarned = (mainTotalEarned % 1).toFixed(4).substring(2);
 
-  const todayGrossTotal = todayGross + overtimeLive;
-  const todayNet = todayGrossTotal * taxInfo.netRatio;
-  const todayGov = todayGrossTotal * taxInfo.deductionRatio;
-  
   // Rate calculations
   const grossSecRate = (isWorkingNow ? earningsPerWorkSec : 0) + 
     (activeOvertimeSession ? (hourlyRate / 3600) * (activeOvertimeSession.multiplierMode === 'auto' ? getDefaultOvertimeMultiplier(new Date(), isTodayMissed) : activeOvertimeSession.multiplierMode) : 0);
-  const netSecRate = grossSecRate * taxInfo.netRatio;
 
   return (
     <>
