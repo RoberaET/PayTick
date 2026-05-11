@@ -965,10 +965,11 @@ function App() {
     return Math.max(0, windowHours - LUNCH_HOURS);
   }, [clockIn, clockOut]);
 
-  // The effective clock-out minute used for counting (removes lunch from end)
+  // The clock-out minute for the full work window (NOT lunch-adjusted)
+  // Lunch is accounted for in the earnings rate, not by truncating the window.
   const effectiveOutMin = useMemo(() => {
-    return toMinutes(clockIn) + effectiveHoursPerDay * 60;
-  }, [clockIn, effectiveHoursPerDay]);
+    return toMinutes(clockOut);
+  }, [clockOut]);
 
   /**
    * Average work-hours per calendar day.
@@ -978,7 +979,7 @@ function App() {
     return effectiveHoursPerDay;
   }, [effectiveHoursPerDay]);
 
-  // Total work-seconds in a 30-day cycle
+  // Total work-seconds in a 30-day cycle (based on effective hours, i.e. lunch-deducted)
   const totalCycleWorkSecs = useMemo(() => {
     return avgHoursPerCalendarDay * 30 * 3600;
   }, [avgHoursPerCalendarDay]);
@@ -996,12 +997,26 @@ function App() {
     return dailyRate / effectiveHoursPerDay;
   }, [dailyRate, effectiveHoursPerDay]);
 
-  // Per-work-second rate
+  // The full window in hours (clock-in to clock-out, before lunch deduction)
+  const windowHoursPerDay = useMemo(() => {
+    return Math.max(0, (toMinutes(clockOut) - toMinutes(clockIn)) / 60);
+  }, [clockIn, clockOut]);
+
+  // Total window-seconds in a 30-day cycle (full window, not lunch-adjusted)
+  // We spread the salary over the entire clock-in→clock-out window so the
+  // counter ticks smoothly across the whole period while still arriving at
+  // the correct total (which already has lunch deducted via effectiveHoursPerDay).
+  const totalCycleWindowSecs = useMemo(() => {
+    return windowHoursPerDay * 30 * 3600;
+  }, [windowHoursPerDay]);
+
+  // Per-work-second rate (salary spread over the full window so the counter
+  // runs continuously from clock-in to clock-out)
   const earningsPerWorkSec = useMemo(() => {
-    if (!totalCycleWorkSecs || !salary) return 0;
+    if (!totalCycleWindowSecs || !salary) return 0;
     const totalSalary = salaryType === 'monthly' ? (salary as number) : (salary as number) * avgHoursPerCalendarDay * 30;
-    return totalSalary / totalCycleWorkSecs;
-  }, [salary, salaryType, totalCycleWorkSecs, avgHoursPerCalendarDay]);
+    return totalSalary / totalCycleWindowSecs;
+  }, [salary, salaryType, totalCycleWindowSecs, avgHoursPerCalendarDay]);
 
   // Real-time tick
   useEffect(() => {
@@ -1063,7 +1078,7 @@ function App() {
     tick();
     const iv = setInterval(tick, 100);
     return () => clearInterval(iv);
-  }, [nextPayDateStr, earningsPerWorkSec, salary, clockIn, effectiveOutMin, effectiveHoursPerDay, totalCycleWorkSecs, missedDates, activeOvertimeSession, hourlyRate]);
+  }, [nextPayDateStr, earningsPerWorkSec, salary, clockIn, effectiveOutMin, effectiveHoursPerDay, totalCycleWorkSecs, totalCycleWindowSecs, windowHoursPerDay, missedDates, activeOvertimeSession, hourlyRate]);
 
   // Handlers
   const handleSalaryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
